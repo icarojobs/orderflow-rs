@@ -11,10 +11,16 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::get;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_otlp::WithExportConfig as _;
+use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::util::SubscriberInitExt as _;
 
 /// Latency buckets from 10µs to 1s, applied to every `*_seconds` histogram.
 const LATENCY_BUCKETS: &[f64] = &[
@@ -22,12 +28,52 @@ const LATENCY_BUCKETS: &[f64] = &[
     0.25, 0.5, 1.0,
 ];
 
-/// JSON logs filtered by `RUST_LOG` (defaults to `info`).
-pub fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .json()
-        .init();
+/// Flushes pending spans when dropped. Keep it alive for the whole `main`.
+#[must_use = "dropping the guard stops span export"]
+pub struct TracingGuard {
+    provider: Option<SdkTracerProvider>,
+}
+
+impl Drop for TracingGuard {
+    fn drop(&mut self) {
+        if let Some(provider) = self.provider.take()
+            && let Err(err) = provider.shutdown()
+        {
+            eprintln!("failed to flush spans: {err}");
+        }
+    }
+}
+
+/// JSON logs filtered by `RUST_LOG` (defaults to `info`). When
+/// `OTEL_EXPORTER_OTLP_ENDPOINT` is set, spans are also exported over OTLP/gRPC.
+pub fn init_tracing(service_name: &'static str) -> anyhow::Result<TracingGuard> {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let fmt = tracing_subscriber::fmt::layer().json();
+
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok().filter(|e| !e.is_empty());
+    let provider = match endpoint {
+        Some(endpoint) => {
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(endpoint)
+                .build()
+                .context("building OTLP exporter")?;
+            Some(
+                SdkTracerProvider::builder()
+                    .with_batch_exporter(exporter)
+                    .with_resource(Resource::builder().with_service_name(service_name).build())
+                    .build(),
+            )
+        }
+        None => None,
+    };
+    let otel = provider.as_ref().map(|p| tracing_opentelemetry::layer().with_tracer(p.tracer(service_name)));
+
+    tracing_subscriber::registry().with(filter).with(fmt).with(otel).init();
+    if provider.is_some() {
+        tracing::info!("exporting spans over OTLP");
+    }
+    Ok(TracingGuard { provider })
 }
 
 /// Builds a Prometheus recorder without installing it globally (useful in tests).

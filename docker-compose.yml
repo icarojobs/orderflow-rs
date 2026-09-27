@@ -31,6 +31,7 @@ services:
       GATEWAY_HTTP_ADDR: 0.0.0.0:8080
       KAFKA_BROKERS: redpanda:9092
       KAFKA_TOPIC: orderflow.events
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     depends_on:
       redpanda:
         condition: service_healthy
@@ -51,6 +52,7 @@ services:
       MD_START_FROM: latest
       KAFKA_BROKERS: redpanda:9092
       KAFKA_TOPIC: orderflow.events
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "${MARKET_DATA_PORT:-18081}:8081"
     depends_on:
@@ -58,6 +60,24 @@ services:
         condition: service_healthy
     stop_grace_period: 10s
     restart: unless-stopped
+
+  # Optional observability stack:
+  #   OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317 docker compose --profile observability up -d
+  jaeger:
+    profiles: [observability]
+    image: jaegertracing/all-in-one:1.65.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.1.0
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-19090}:9090"
 
   # Toolchain container for running cargo inside Docker:
   #   docker compose run --rm dev cargo test --workspace

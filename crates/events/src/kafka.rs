@@ -53,10 +53,14 @@ pub async fn connect(config: &KafkaConfig, client_id: &str) -> Result<PartitionC
         .build()
         .await?;
 
-    match client.controller_client()?.create_topic(&config.topic, 1, 1, 5_000).await {
-        Ok(()) => tracing::info!(topic = %config.topic, "created topic"),
-        Err(Error::ServerError { protocol_error: ProtocolError::TopicAlreadyExists, .. }) => {}
-        Err(err) => return Err(err),
+    // Check first: rskafka logs an ERROR for TopicAlreadyExists even though we handle it.
+    let exists = client.list_topics().await?.iter().any(|t| t.name == config.topic);
+    if !exists {
+        match client.controller_client()?.create_topic(&config.topic, 1, 1, 5_000).await {
+            Ok(()) => tracing::info!(topic = %config.topic, "created topic"),
+            Err(Error::ServerError { protocol_error: ProtocolError::TopicAlreadyExists, .. }) => {}
+            Err(err) => return Err(err),
+        }
     }
 
     client.partition_client(config.topic.clone(), PARTITION, UnknownTopicHandling::Retry).await

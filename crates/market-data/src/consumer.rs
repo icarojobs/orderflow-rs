@@ -117,6 +117,11 @@ impl Consumer {
                 Err(err) => return Err((offset, err)),
             };
 
+            if records.is_empty() {
+                continue;
+            }
+            let span = tracing::info_span!("fanout", records = records.len(), offset);
+            let _entered = span.enter();
             for record in records {
                 offset = record.offset + 1;
                 let Some(value) = record.record.value else { continue };

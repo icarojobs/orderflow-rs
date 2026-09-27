@@ -34,6 +34,7 @@ type TradeStream = Pin<Box<dyn Stream<Item = Result<Trade, Status>> + Send>>;
 
 #[tonic::async_trait]
 impl OrderGateway for GatewayService {
+    #[tracing::instrument(name = "PlaceOrder", skip_all, fields(symbol = %request.get_ref().symbol))]
     async fn place_order(
         &self,
         request: Request<PlaceOrderRequest>,
@@ -72,6 +73,7 @@ impl OrderGateway for GatewayService {
         }))
     }
 
+    #[tracing::instrument(name = "CancelOrder", skip_all, fields(symbol = %request.get_ref().symbol))]
     async fn cancel_order(
         &self,
         request: Request<CancelOrderRequest>,
@@ -84,6 +86,7 @@ impl OrderGateway for GatewayService {
         }))
     }
 
+    #[tracing::instrument(name = "GetBook", skip_all, fields(symbol = %request.get_ref().symbol))]
     async fn get_book(&self, request: Request<GetBookRequest>) -> Result<Response<GetBookResponse>, Status> {
         let req = request.into_inner();
         let levels = match req.depth as usize {

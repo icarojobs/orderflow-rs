@@ -41,7 +41,7 @@ impl Config {
 }
 
 /// Runs the consumer and the HTTP/WebSocket server until `stop` is cancelled.
-/// Returns the hub so tests can inject updates without a broker.
+/// The hub is passed in so tests can inject updates without a broker.
 pub async fn serve(
     config: Config,
     listener: TcpListener,

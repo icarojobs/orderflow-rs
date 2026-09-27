@@ -26,6 +26,10 @@ slab = "0.4"
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }
 metrics = "0.24"
+opentelemetry = "0.33"
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["grpc-tonic", "trace"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
+tracing-opentelemetry = "0.34"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 futures-util = "0.3"
 rskafka = { version = "0.6", default-features = false }
