@@ -24,6 +24,8 @@ criterion = { version = "0.8", default-features = false, features = ["cargo_benc
 proptest = "1"
 slab = "0.4"
 anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+hdrhistogram = { version = "7", default-features = false }
 axum = { version = "0.8", features = ["ws"] }
 metrics = "0.24"
 opentelemetry = "0.33"

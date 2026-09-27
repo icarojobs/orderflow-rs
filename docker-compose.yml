@@ -61,6 +61,20 @@ services:
     stop_grace_period: 10s
     restart: unless-stopped
 
+  # Load generator (on demand):
+  #   docker compose run --rm loadgen --orders 100000 --concurrency 64
+  loadgen:
+    profiles: [tools]
+    build:
+      context: .
+      target: loadgen
+    image: orderflow/loadgen:local
+    environment:
+      LOADGEN_ADDR: http://gateway:50051
+    depends_on:
+      gateway:
+        condition: service_healthy
+
   # Optional observability stack:
   #   OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317 docker compose --profile observability up -d
   jaeger:

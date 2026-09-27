@@ -26,3 +26,7 @@ COPY --from=builder /out/market-data /usr/local/bin/market-data
 EXPOSE 8081
 HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=5 CMD ["market-data", "healthcheck"]
 ENTRYPOINT ["market-data"]
+
+FROM gcr.io/distroless/cc-debian13:nonroot AS loadgen
+COPY --from=builder /out/loadgen /usr/local/bin/loadgen
+ENTRYPOINT ["loadgen"]
