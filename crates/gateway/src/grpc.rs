@@ -1,4 +1,5 @@
 use std::pin::Pin;
+use std::time::Instant;
 
 use engine::{EngineError, LevelView, OrderRequest};
 use events::MarketEvent;
@@ -49,7 +50,10 @@ impl OrderGateway for GatewayService {
             _ => return Err(Status::invalid_argument("order_type must be LIMIT or MARKET")),
         };
 
-        let exec = self.matcher.place(req.symbol, order).await?;
+        let started = Instant::now();
+        let exec = self.matcher.place(req.symbol, order).await;
+        metrics::histogram!("orderflow_place_order_duration_seconds").record(started.elapsed());
+        let exec = exec?;
         let status = match exec.status {
             engine::OrderStatus::Resting => OrderStatus::Resting,
             engine::OrderStatus::Filled => OrderStatus::Filled,

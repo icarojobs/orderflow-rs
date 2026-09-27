@@ -1,6 +1,6 @@
 [package]
-name = "orderflow-gateway"
-description = "gRPC order gateway in front of the matching engine"
+name = "orderflow-telemetry"
+description = "Tracing, metrics and process lifecycle helpers shared by the services"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,29 +10,16 @@ authors.workspace = true
 publish = false
 
 [lib]
-name = "gateway"
+name = "telemetry"
 doctest = false
-bench = false
-
-[[bin]]
-name = "gateway"
-path = "src/main.rs"
 bench = false
 
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-futures-util.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
-orderflow-engine.workspace = true
-orderflow-events.workspace = true
-orderflow-proto.workspace = true
-orderflow-telemetry.workspace = true
-thiserror.workspace = true
 tokio.workspace = true
-tokio-stream.workspace = true
 tokio-util.workspace = true
-tonic.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

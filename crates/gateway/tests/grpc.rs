@@ -1,11 +1,15 @@
 use std::time::Duration;
 
+use gateway::Listeners;
 use gateway::config::Config;
 use proto::order_gateway_client::OrderGatewayClient;
 use proto::{
     CancelOrderRequest, GetBookRequest, OrderStatus, OrderType, PlaceOrderRequest, Side, StreamTradesRequest,
 };
-use tokio::net::TcpListener;
+use std::net::SocketAddr;
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tonic::Code;
 use tonic::transport::Channel;
@@ -14,17 +18,34 @@ struct TestGateway {
     client: OrderGatewayClient<Channel>,
     stop: CancellationToken,
     task: tokio::task::JoinHandle<anyhow::Result<()>>,
+    http_addr: SocketAddr,
 }
 
 async fn start() -> TestGateway {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let config =
-        Config { grpc_addr: addr, symbols: vec!["BTC-USD".into()], queue_capacity: 1024, default_depth: 10 };
+    let grpc = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let http = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (addr, http_addr) = (grpc.local_addr().unwrap(), http.local_addr().unwrap());
+    let config = Config {
+        grpc_addr: addr,
+        http_addr,
+        symbols: vec!["BTC-USD".into()],
+        queue_capacity: 1024,
+        default_depth: 10,
+    };
+    let metrics = telemetry::prometheus_recorder().unwrap().handle();
     let stop = CancellationToken::new();
-    let task = tokio::spawn(gateway::serve(config, listener, stop.clone()));
+    let task = tokio::spawn(gateway::serve(config, Listeners { grpc, http }, metrics, stop.clone()));
     let client = OrderGatewayClient::connect(format!("http://{addr}")).await.unwrap();
-    TestGateway { client, stop, task }
+    TestGateway { client, stop, task, http_addr }
+}
+
+async fn http_get(addr: SocketAddr, path: &str) -> String {
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    let request = format!("GET {path} HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).await.unwrap();
+    response
 }
 
 fn limit(side: Side, price: i64, quantity: u64) -> PlaceOrderRequest {
@@ -39,7 +60,7 @@ fn limit(side: Side, price: i64, quantity: u64) -> PlaceOrderRequest {
 
 #[tokio::test]
 async fn place_match_stream_and_stop() {
-    let TestGateway { mut client, stop, task } = start().await;
+    let TestGateway { mut client, stop, task, .. } = start().await;
 
     let mut trades =
         client.stream_trades(StreamTradesRequest { symbol: "BTC-USD".into() }).await.unwrap().into_inner();
@@ -84,6 +105,18 @@ async fn invalid_requests_map_to_grpc_codes() {
 
     let missing = CancelOrderRequest { symbol: "BTC-USD".into(), order_id: 999 };
     assert_eq!(client.cancel_order(missing).await.unwrap_err().code(), Code::NotFound);
+
+    stop.cancel();
+}
+
+#[tokio::test]
+async fn ops_endpoints_respond() {
+    let TestGateway { stop, http_addr, .. } = start().await;
+
+    assert!(http_get(http_addr, "/healthz").await.starts_with("HTTP/1.1 200"));
+    let ready = http_get(http_addr, "/readyz").await;
+    assert!(ready.starts_with("HTTP/1.1 200") && ready.ends_with("ready"));
+    assert!(http_get(http_addr, "/metrics").await.starts_with("HTTP/1.1 200"));
 
     stop.cancel();
 }

@@ -6,6 +6,7 @@ use anyhow::Context;
 #[derive(Clone, Debug)]
 pub struct Config {
     pub grpc_addr: SocketAddr,
+    pub http_addr: SocketAddr,
     pub symbols: Vec<String>,
     /// Capacity of the command queue in front of the matching task.
     pub queue_capacity: usize,
@@ -23,6 +24,7 @@ impl Config {
 
         Ok(Self {
             grpc_addr: var_or("GATEWAY_GRPC_ADDR", "0.0.0.0:50051".parse()?)?,
+            http_addr: var_or("GATEWAY_HTTP_ADDR", "0.0.0.0:8080".parse()?)?,
             symbols,
             queue_capacity: var_or("GATEWAY_QUEUE_CAPACITY", 65_536)?,
             default_depth: var_or("GATEWAY_DEFAULT_DEPTH", 10)?,
