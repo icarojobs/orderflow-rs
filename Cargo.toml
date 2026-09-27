@@ -11,6 +11,13 @@ repository = "https://github.com/icarojobs/orderflow-rs"
 authors = ["Icaro William <icarojobsoficial@gmail.com>"]
 
 [workspace.dependencies]
+orderflow-engine = { path = "crates/engine" }
+orderflow-proto = { path = "crates/proto" }
+prost = "0.14"
+protoc-bin-vendored = "3"
+tonic = "0.14"
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support", "plotters"] }
 proptest = "1"
 slab = "0.4"
