@@ -16,6 +16,8 @@ use events::MarketEvent;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+use crate::publisher::EventSink;
+
 /// Max commands drained from the queue per wakeup.
 const BATCH: usize = 256;
 
@@ -76,13 +78,19 @@ impl MatcherHandle {
 
 /// Spawns the matching task. It stops once every [`MatcherHandle`] is dropped
 /// and the queue has been drained.
-pub fn spawn(symbols: &[String], queue_capacity: usize) -> (MatcherHandle, JoinHandle<()>) {
+pub fn spawn(
+    symbols: &[String],
+    queue_capacity: usize,
+    sink: Option<EventSink>,
+) -> (MatcherHandle, JoinHandle<()>) {
     let (tx, rx) = mpsc::channel(queue_capacity);
     let (events, _) = broadcast::channel(16_384);
     let matcher = Matcher {
         books: symbols.iter().map(|s| (s.clone(), OrderBook::new())).collect(),
         sequence: 0,
         events: events.clone(),
+        sink,
+        outbox: Vec::new(),
     };
     let task = tokio::spawn(matcher.run(rx));
     (MatcherHandle { tx, events }, task)
@@ -92,6 +100,9 @@ struct Matcher {
     books: HashMap<String, OrderBook>,
     sequence: u64,
     events: broadcast::Sender<Arc<MarketEvent>>,
+    sink: Option<EventSink>,
+    /// Events produced by the current batch, flushed to the sink after it.
+    outbox: Vec<Arc<MarketEvent>>,
 }
 
 impl Matcher {
@@ -105,6 +116,7 @@ impl Matcher {
                 self.handle(cmd);
                 metrics::histogram!("orderflow_match_duration_seconds").record(started.elapsed());
             }
+            self.flush().await;
         }
         tracing::info!(sequence = self.sequence, "matching loop drained and stopped");
     }
@@ -198,9 +210,29 @@ impl Matcher {
         self.sequence
     }
 
-    fn publish(&self, event: MarketEvent) {
+    fn publish(&mut self, event: MarketEvent) {
+        let event = Arc::new(event);
         // No subscribers is fine; the event is simply not observed.
-        let _ = self.events.send(Arc::new(event));
+        let _ = self.events.send(event.clone());
+        if self.sink.is_some() {
+            self.outbox.push(event);
+        }
+    }
+
+    /// Hands the batch's events to the publisher. Awaiting here is the backpressure
+    /// point: if Kafka falls behind, matching slows down instead of losing events.
+    async fn flush(&mut self) {
+        let Some(sink) = &self.sink else { return };
+        let mut outbox = std::mem::take(&mut self.outbox);
+        for event in outbox.drain(..) {
+            if sink.send(event).await.is_err() {
+                tracing::error!("event publisher is gone, disabling Kafka output");
+                self.sink = None;
+                return;
+            }
+        }
+        // Keep the allocation for the next batch.
+        self.outbox = outbox;
     }
 }
 

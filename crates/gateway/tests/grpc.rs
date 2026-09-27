@@ -31,6 +31,9 @@ async fn start() -> TestGateway {
         symbols: vec!["BTC-USD".into()],
         queue_capacity: 1024,
         default_depth: 10,
+        kafka: None,
+        publisher_capacity: 1024,
+        publisher_batch: 64,
     };
     let metrics = telemetry::prometheus_recorder().unwrap().handle();
     let stop = CancellationToken::new();

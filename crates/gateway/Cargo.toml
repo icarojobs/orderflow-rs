@@ -29,6 +29,7 @@ orderflow-engine.workspace = true
 orderflow-events.workspace = true
 orderflow-proto.workspace = true
 orderflow-telemetry.workspace = true
+rskafka.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

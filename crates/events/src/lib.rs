@@ -1,6 +1,8 @@
 //! Events emitted by the matching engine. They are serialized as JSON on the
 //! wire so any consumer (or a human with `rpk topic consume`) can read them.
 
+pub mod kafka;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +78,14 @@ impl MarketEvent {
             MarketEvent::Trade(e) => e.sequence,
             MarketEvent::OrderAccepted(e) => e.sequence,
             MarketEvent::OrderCancelled(e) => e.sequence,
+        }
+    }
+
+    pub fn timestamp_ns(&self) -> i64 {
+        match self {
+            MarketEvent::Trade(e) => e.timestamp_ns,
+            MarketEvent::OrderAccepted(e) => e.timestamp_ns,
+            MarketEvent::OrderCancelled(e) => e.timestamp_ns,
         }
     }
 

@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use anyhow::Context;
+use events::kafka::KafkaConfig;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -11,6 +12,10 @@ pub struct Config {
     /// Capacity of the command queue in front of the matching task.
     pub queue_capacity: usize,
     pub default_depth: usize,
+    /// `None` disables event publishing (handy for tests and local runs).
+    pub kafka: Option<KafkaConfig>,
+    pub publisher_capacity: usize,
+    pub publisher_batch: usize,
 }
 
 impl Config {
@@ -28,6 +33,9 @@ impl Config {
             symbols,
             queue_capacity: var_or("GATEWAY_QUEUE_CAPACITY", 65_536)?,
             default_depth: var_or("GATEWAY_DEFAULT_DEPTH", 10)?,
+            kafka: KafkaConfig::from_env(),
+            publisher_capacity: var_or("GATEWAY_PUBLISHER_CAPACITY", 65_536)?,
+            publisher_batch: var_or("GATEWAY_PUBLISHER_BATCH", 1_024)?,
         })
     }
 }
