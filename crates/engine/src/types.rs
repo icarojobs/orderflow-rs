@@ -21,7 +21,11 @@ impl Side {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OrderType {
-    Limit { price: Price },
+    Limit {
+        price: Price,
+    },
+    /// Executes against whatever liquidity exists; the unfilled remainder expires.
+    Market,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +38,10 @@ pub struct OrderRequest {
 impl OrderRequest {
     pub fn limit(side: Side, price: Price, qty: Qty) -> Self {
         Self { side, order_type: OrderType::Limit { price }, qty }
+    }
+
+    pub fn market(side: Side, qty: Qty) -> Self {
+        Self { side, order_type: OrderType::Market, qty }
     }
 }
 
@@ -52,6 +60,8 @@ pub enum OrderStatus {
     /// The remainder is resting on the book (it may have been partially filled).
     Resting,
     Filled,
+    /// Market order that could not be fully filled; the remainder was discarded.
+    Expired,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,4 +85,29 @@ pub enum EngineError {
     ZeroQuantity,
     #[error("limit price must be greater than zero, got {0}")]
     InvalidPrice(Price),
+    #[error("order {0} is not resting on the book")]
+    UnknownOrder(OrderId),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cancelled {
+    pub order_id: OrderId,
+    pub side: Side,
+    pub price: Price,
+    /// Quantity that was still resting when the order was removed.
+    pub qty: Qty,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LevelView {
+    pub price: Price,
+    pub qty: Qty,
+    pub orders: usize,
+}
+
+/// Aggregated view of the top of the book, best prices first.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Depth {
+    pub bids: Vec<LevelView>,
+    pub asks: Vec<LevelView>,
 }
