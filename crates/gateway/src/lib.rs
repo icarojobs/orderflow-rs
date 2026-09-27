@@ -5,6 +5,7 @@ pub mod publisher;
 
 use metrics_exporter_prometheus::PrometheusHandle;
 use tokio::net::TcpListener;
+use tokio_stream::StreamExt;
 use tokio_stream::wrappers::TcpListenerStream;
 use tokio_util::sync::CancellationToken;
 
@@ -41,10 +42,18 @@ pub async fn serve(
     let http = tokio::spawn(telemetry::serve_http(listeners.http, ops, stop.clone()));
 
     let service = GatewayService::new(matcher, stop.clone(), config.default_depth);
-    tracing::info!(addr = %listeners.grpc.local_addr()?, symbols = ?config.symbols, "gRPC server listening");
+    // `serve_with_incoming` skips the builder's socket options, so set TCP_NODELAY
+    // here. Without it Nagle plus delayed ACKs add ~40ms to small responses.
+    let grpc_addr = listeners.grpc.local_addr()?;
+    let incoming = TcpListenerStream::new(listeners.grpc).map(|conn| {
+        let conn = conn?;
+        conn.set_nodelay(true)?;
+        Ok::<_, std::io::Error>(conn)
+    });
+    tracing::info!(addr = %grpc_addr, symbols = ?config.symbols, "gRPC server listening");
     tonic::transport::Server::builder()
         .add_service(proto::order_gateway_server::OrderGatewayServer::new(service))
-        .serve_with_incoming_shutdown(TcpListenerStream::new(listeners.grpc), stop.cancelled_owned())
+        .serve_with_incoming_shutdown(incoming, stop.cancelled_owned())
         .await?;
 
     // The ops server holds the last matcher handle through the readiness probe.
