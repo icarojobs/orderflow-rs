@@ -1,9 +1,11 @@
 //! Cross-cutting pieces every service needs: logs, metrics, an ops HTTP
 //! endpoint and signal handling.
 
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
 use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -118,4 +120,16 @@ pub async fn probe(addr: &str, path: &str) -> anyhow::Result<()> {
         String::from_utf8_lossy(status)
     );
     Ok(())
+}
+
+/// Reads and parses an environment variable, falling back to `default` when unset.
+pub fn env_or<T>(name: &str, default: T) -> anyhow::Result<T>
+where
+    T: FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    match std::env::var(name) {
+        Ok(raw) => raw.parse().with_context(|| format!("invalid value for {name}: {raw:?}")),
+        Err(_) => Ok(default),
+    }
 }
