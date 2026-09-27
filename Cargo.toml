@@ -12,6 +12,7 @@ authors = ["Icaro William <icarojobsoficial@gmail.com>"]
 
 [workspace.dependencies]
 orderflow-engine = { path = "crates/engine" }
+orderflow-events = { path = "crates/events" }
 orderflow-proto = { path = "crates/proto" }
 prost = "0.14"
 protoc-bin-vendored = "3"
@@ -21,6 +22,15 @@ tonic-prost-build = "0.14"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support", "plotters"] }
 proptest = "1"
 slab = "0.4"
+anyhow = "1"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "net", "time"] }
+tokio-stream = { version = "0.1", features = ["sync", "net"] }
+tokio-util = "0.7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 thiserror = "2"
 
 [profile.release]
