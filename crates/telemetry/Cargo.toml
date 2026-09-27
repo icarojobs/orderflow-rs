@@ -1,0 +1,25 @@
+[package]
+name = "orderflow-telemetry"
+description = "Tracing, metrics and process lifecycle helpers shared by the services"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "telemetry"
+doctest = false
+bench = false
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
