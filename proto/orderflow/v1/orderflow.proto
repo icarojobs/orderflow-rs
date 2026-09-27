@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package orderflow.v1;
+
+// Prices are integer ticks and quantities are integer lots.
+service OrderGateway {
+  rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc GetBook(GetBookRequest) returns (GetBookResponse);
+  // Server stream of trades as they are matched. An empty symbol subscribes to all.
+  rpc StreamTrades(StreamTradesRequest) returns (stream Trade);
+}
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  SIDE_BUY = 1;
+  SIDE_SELL = 2;
+}
+
+enum OrderType {
+  ORDER_TYPE_UNSPECIFIED = 0;
+  ORDER_TYPE_LIMIT = 1;
+  ORDER_TYPE_MARKET = 2;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_RESTING = 1;
+  ORDER_STATUS_FILLED = 2;
+  ORDER_STATUS_EXPIRED = 3;
+}
+
+message PlaceOrderRequest {
+  string symbol = 1;
+  Side side = 2;
+  OrderType order_type = 3;
+  // Ignored for market orders.
+  int64 price = 4;
+  uint64 quantity = 5;
+}
+
+message Fill {
+  uint64 maker_order_id = 1;
+  int64 price = 2;
+  uint64 quantity = 3;
+}
+
+message PlaceOrderResponse {
+  uint64 order_id = 1;
+  OrderStatus status = 2;
+  uint64 filled_quantity = 3;
+  uint64 remaining_quantity = 4;
+  repeated Fill fills = 5;
+}
+
+message CancelOrderRequest {
+  string symbol = 1;
+  uint64 order_id = 2;
+}
+
+message CancelOrderResponse {
+  uint64 order_id = 1;
+  uint64 cancelled_quantity = 2;
+}
+
+message GetBookRequest {
+  string symbol = 1;
+  // Number of levels per side; 0 means the server default.
+  uint32 depth = 2;
+}
+
+message Level {
+  int64 price = 1;
+  uint64 quantity = 2;
+  uint32 orders = 3;
+}
+
+message GetBookResponse {
+  string symbol = 1;
+  repeated Level bids = 2;
+  repeated Level asks = 3;
+}
+
+message StreamTradesRequest {
+  string symbol = 1;
+}
+
+message Trade {
+  string symbol = 1;
+  uint64 sequence = 2;
+  uint64 maker_order_id = 3;
+  uint64 taker_order_id = 4;
+  Side taker_side = 5;
+  int64 price = 6;
+  uint64 quantity = 7;
+  int64 timestamp_unix_nanos = 8;
+}
