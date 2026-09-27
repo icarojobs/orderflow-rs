@@ -1,16 +1,39 @@
 name: orderflow
 
 services:
+  redpanda:
+    image: redpandadata/redpanda:v26.2.2
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "${REDPANDA_KAFKA_PORT:-19092}:19092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -Eq 'Healthy:.+true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   gateway:
     build:
       context: .
       target: gateway
     image: orderflow/gateway:local
     environment:
-      RUST_LOG: info
+      RUST_LOG: info,rskafka=warn
       GATEWAY_SYMBOLS: BTC-USD,ETH-USD
       GATEWAY_GRPC_ADDR: 0.0.0.0:50051
       GATEWAY_HTTP_ADDR: 0.0.0.0:8080
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_TOPIC: orderflow.events
+    depends_on:
+      redpanda:
+        condition: service_healthy
     ports:
       - "${GATEWAY_GRPC_PORT:-50051}:50051"
       - "${GATEWAY_HTTP_PORT:-18080}:8080"

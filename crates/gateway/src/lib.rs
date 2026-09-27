@@ -1,6 +1,7 @@
 pub mod config;
 pub mod grpc;
 pub mod matcher;
+pub mod publisher;
 
 use metrics_exporter_prometheus::PrometheusHandle;
 use tokio::net::TcpListener;
@@ -22,7 +23,18 @@ pub async fn serve(
     metrics: PrometheusHandle,
     stop: CancellationToken,
 ) -> anyhow::Result<()> {
-    let (matcher, matcher_task) = matcher::spawn(&config.symbols, config.queue_capacity);
+    let (sink, publisher_task) = match config.kafka.clone() {
+        Some(kafka) => {
+            let (sink, task) =
+                publisher::spawn(kafka, config.publisher_capacity, config.publisher_batch, stop.clone());
+            (Some(sink), Some(task))
+        }
+        None => {
+            tracing::warn!("KAFKA_BROKERS not set, events will not be published");
+            (None, None)
+        }
+    };
+    let (matcher, matcher_task) = matcher::spawn(&config.symbols, config.queue_capacity, sink);
 
     let probe = matcher.clone();
     let ops = telemetry::ops_router(metrics, move || probe.is_alive());
@@ -38,6 +50,10 @@ pub async fn serve(
     // The ops server holds the last matcher handle through the readiness probe.
     http.await??;
     matcher_task.await?;
+    // With the matcher gone the sink is closed; the publisher flushes what is left.
+    if let Some(task) = publisher_task {
+        task.await?;
+    }
     tracing::info!("gateway stopped");
     Ok(())
 }
