@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, HashMap};
 use slab::Slab;
 
 use crate::types::{
-    EngineError, Execution, Fill, OrderId, OrderRequest, OrderStatus, OrderType, Price, Qty, Side,
+    Cancelled, Depth, EngineError, Execution, Fill, LevelView, OrderId, OrderRequest, OrderStatus, OrderType,
+    Price, Qty, Side,
 };
 
 /// Resting order stored in the slab. Orders at the same price form an intrusive
@@ -11,6 +12,8 @@ use crate::types::{
 #[derive(Debug)]
 struct Node {
     id: OrderId,
+    side: Side,
+    price: Price,
     qty: Qty,
     prev: Option<usize>,
     next: Option<usize>,
@@ -44,24 +47,67 @@ impl OrderBook {
         if req.qty == 0 {
             return Err(EngineError::ZeroQuantity);
         }
-        let OrderType::Limit { price } = req.order_type;
-        if price <= 0 {
-            return Err(EngineError::InvalidPrice(price));
-        }
+        let limit = match req.order_type {
+            OrderType::Limit { price } if price <= 0 => return Err(EngineError::InvalidPrice(price)),
+            OrderType::Limit { price } => Some(price),
+            OrderType::Market => None,
+        };
 
         self.next_id += 1;
         let id = self.next_id;
         let mut fills = Vec::new();
-        let remaining = self.match_incoming(id, req.side, Some(price), req.qty, &mut fills);
+        let remaining = self.match_incoming(id, req.side, limit, req.qty, &mut fills);
 
-        let status = if remaining == 0 {
-            OrderStatus::Filled
-        } else {
-            self.rest(id, req.side, price, remaining);
-            OrderStatus::Resting
+        let status = match (remaining, limit) {
+            (0, _) => OrderStatus::Filled,
+            (_, Some(price)) => {
+                self.rest(id, req.side, price, remaining);
+                OrderStatus::Resting
+            }
+            (_, None) => OrderStatus::Expired,
         };
 
         Ok(Execution { order_id: id, fills, remaining, status })
+    }
+
+    /// Removes a resting order from the book.
+    pub fn cancel(&mut self, id: OrderId) -> Result<Cancelled, EngineError> {
+        let idx = self.index.remove(&id).ok_or(EngineError::UnknownOrder(id))?;
+        let node = self.orders.remove(idx);
+        let levels = match node.side {
+            Side::Buy => &mut self.bids,
+            Side::Sell => &mut self.asks,
+        };
+        let level = levels.get_mut(&node.price).expect("resting order must belong to a level");
+
+        match node.prev {
+            Some(p) => self.orders[p].next = node.next,
+            None => level.head = node.next,
+        }
+        match node.next {
+            Some(n) => self.orders[n].prev = node.prev,
+            None => level.tail = node.prev,
+        }
+        level.qty -= node.qty;
+        level.len -= 1;
+        if level.len == 0 {
+            levels.remove(&node.price);
+        }
+
+        Ok(Cancelled { order_id: id, side: node.side, price: node.price, qty: node.qty })
+    }
+
+    /// Aggregated quantity for up to `levels` price levels on each side.
+    pub fn depth(&self, levels: usize) -> Depth {
+        let view = |(&price, level): (&Price, &Level)| LevelView { price, qty: level.qty, orders: level.len };
+        Depth {
+            bids: self.bids.iter().rev().take(levels).map(view).collect(),
+            asks: self.asks.iter().take(levels).map(view).collect(),
+        }
+    }
+
+    pub fn contains(&self, id: OrderId) -> bool {
+        self.index.contains_key(&id)
     }
 
     pub fn best_bid(&self) -> Option<Price> {
@@ -162,7 +208,7 @@ impl OrderBook {
     }
 
     fn rest(&mut self, id: OrderId, side: Side, price: Price, qty: Qty) {
-        let idx = self.orders.insert(Node { id, qty, prev: None, next: None });
+        let idx = self.orders.insert(Node { id, side, price, qty, prev: None, next: None });
         let level = match side {
             Side::Buy => self.bids.entry(price).or_default(),
             Side::Sell => self.asks.entry(price).or_default(),
@@ -284,6 +330,88 @@ mod tests {
         assert_eq!(buy.filled_qty(), 1);
         assert_eq!(book.best_bid(), Some(101));
         assert_eq!(book.best_ask(), Some(102));
+    }
+
+    #[test]
+    fn market_order_sweeps_levels_and_expires_remainder() {
+        let mut book = OrderBook::new();
+        limit(&mut book, Side::Sell, 100, 2);
+        limit(&mut book, Side::Sell, 105, 2);
+
+        let exec = book.submit(OrderRequest::market(Side::Buy, 5)).unwrap();
+        assert_eq!(exec.status, OrderStatus::Expired);
+        assert_eq!(exec.filled_qty(), 4);
+        assert_eq!(exec.remaining, 1);
+        assert!(book.is_empty(), "market orders never rest");
+    }
+
+    #[test]
+    fn market_order_on_empty_book_expires() {
+        let mut book = OrderBook::new();
+        let exec = book.submit(OrderRequest::market(Side::Sell, 3)).unwrap();
+        assert_eq!(exec.status, OrderStatus::Expired);
+        assert!(exec.fills.is_empty());
+    }
+
+    #[test]
+    fn cancel_removes_order_and_empty_level() {
+        let mut book = OrderBook::new();
+        let bid = limit(&mut book, Side::Buy, 100, 4);
+
+        let cancelled = book.cancel(bid.order_id).unwrap();
+        assert_eq!(cancelled, Cancelled { order_id: bid.order_id, side: Side::Buy, price: 100, qty: 4 });
+        assert_eq!(book.best_bid(), None);
+        assert_eq!(book.cancel(bid.order_id), Err(EngineError::UnknownOrder(bid.order_id)));
+    }
+
+    #[test]
+    fn cancel_from_middle_of_queue_keeps_fifo() {
+        let mut book = OrderBook::new();
+        let a = limit(&mut book, Side::Sell, 100, 1);
+        let b = limit(&mut book, Side::Sell, 100, 1);
+        let c = limit(&mut book, Side::Sell, 100, 1);
+        book.cancel(b.order_id).unwrap();
+
+        let buy = limit(&mut book, Side::Buy, 100, 2);
+        let makers: Vec<_> = buy.fills.iter().map(|f| f.maker_order_id).collect();
+        assert_eq!(makers, vec![a.order_id, c.order_id]);
+    }
+
+    #[test]
+    fn cancel_tail_then_append() {
+        let mut book = OrderBook::new();
+        let a = limit(&mut book, Side::Buy, 100, 1);
+        let b = limit(&mut book, Side::Buy, 100, 1);
+        book.cancel(b.order_id).unwrap();
+        let c = limit(&mut book, Side::Buy, 100, 1);
+
+        let sell = limit(&mut book, Side::Sell, 100, 2);
+        let makers: Vec<_> = sell.fills.iter().map(|f| f.maker_order_id).collect();
+        assert_eq!(makers, vec![a.order_id, c.order_id]);
+    }
+
+    #[test]
+    fn filled_orders_cannot_be_cancelled() {
+        let mut book = OrderBook::new();
+        let ask = limit(&mut book, Side::Sell, 100, 1);
+        limit(&mut book, Side::Buy, 100, 1);
+        assert!(!book.contains(ask.order_id));
+        assert_eq!(book.cancel(ask.order_id), Err(EngineError::UnknownOrder(ask.order_id)));
+    }
+
+    #[test]
+    fn depth_aggregates_best_levels_first() {
+        let mut book = OrderBook::new();
+        limit(&mut book, Side::Buy, 99, 1);
+        limit(&mut book, Side::Buy, 99, 2);
+        limit(&mut book, Side::Buy, 98, 5);
+        limit(&mut book, Side::Sell, 101, 3);
+        limit(&mut book, Side::Sell, 103, 1);
+
+        let depth = book.depth(1);
+        assert_eq!(depth.bids, vec![LevelView { price: 99, qty: 3, orders: 2 }]);
+        assert_eq!(depth.asks, vec![LevelView { price: 101, qty: 3, orders: 1 }]);
+        assert_eq!(book.depth(10).bids.len(), 2);
     }
 
     #[test]

@@ -9,5 +9,6 @@ mod types;
 
 pub use book::OrderBook;
 pub use types::{
-    EngineError, Execution, Fill, OrderId, OrderRequest, OrderStatus, OrderType, Price, Qty, Side,
+    Cancelled, Depth, EngineError, Execution, Fill, LevelView, OrderId, OrderRequest, OrderStatus, OrderType,
+    Price, Qty, Side,
 };
