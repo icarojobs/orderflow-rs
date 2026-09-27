@@ -40,6 +40,25 @@ services:
     stop_grace_period: 10s
     restart: unless-stopped
 
+  market-data:
+    build:
+      context: .
+      target: market-data
+    image: orderflow/market-data:local
+    environment:
+      RUST_LOG: info,rskafka=warn
+      MD_HTTP_ADDR: 0.0.0.0:8081
+      MD_START_FROM: latest
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_TOPIC: orderflow.events
+    ports:
+      - "${MARKET_DATA_PORT:-18081}:8081"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    stop_grace_period: 10s
+    restart: unless-stopped
+
   # Toolchain container for running cargo inside Docker:
   #   docker compose run --rm dev cargo test --workspace
   dev:
@@ -48,12 +67,12 @@ services:
       context: .
       target: toolchain
     image: orderflow/toolchain:local
+    # Runs as the host user and keeps cargo caches under ./target/docker, so
+    # nothing root-owned lands in the repo and no named volumes are needed.
+    user: "${UID:-1000}:${GID:-1000}"
     working_dir: /src
+    environment:
+      CARGO_HOME: /src/target/docker/cargo
+      CARGO_TARGET_DIR: /src/target/docker/build
     volumes:
       - .:/src
-      - cargo-registry:/usr/local/cargo/registry
-      - dev-target:/src/target
-
-volumes:
-  cargo-registry:
-  dev-target:

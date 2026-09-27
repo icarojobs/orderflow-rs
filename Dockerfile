@@ -20,3 +20,9 @@ COPY --from=builder /out/gateway /usr/local/bin/gateway
 EXPOSE 50051 8080
 HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=5 CMD ["gateway", "healthcheck"]
 ENTRYPOINT ["gateway"]
+
+FROM gcr.io/distroless/cc-debian13:nonroot AS market-data
+COPY --from=builder /out/market-data /usr/local/bin/market-data
+EXPOSE 8081
+HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=5 CMD ["market-data", "healthcheck"]
+ENTRYPOINT ["market-data"]
