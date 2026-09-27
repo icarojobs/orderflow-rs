@@ -37,10 +37,18 @@ enum Command {
     Depth { symbol: String, levels: usize, reply: oneshot::Sender<Result<Depth, MatchError>> },
 }
 
+/// A command plus the caller's span (so matching shows up inside the request
+/// trace) and the enqueue time (to measure queueing separately from matching).
+struct Envelope {
+    cmd: Command,
+    span: tracing::Span,
+    enqueued: Instant,
+}
+
 /// Cheap, cloneable handle used by request handlers.
 #[derive(Clone)]
 pub struct MatcherHandle {
-    tx: mpsc::Sender<Command>,
+    tx: mpsc::Sender<Envelope>,
     events: broadcast::Sender<Arc<MarketEvent>>,
 }
 
@@ -71,7 +79,9 @@ impl MatcherHandle {
         make: impl FnOnce(oneshot::Sender<Result<T, MatchError>>) -> Command,
     ) -> Result<T, MatchError> {
         let (reply, rx) = oneshot::channel();
-        self.tx.send(make(reply)).await.map_err(|_| MatchError::Unavailable)?;
+        let envelope =
+            Envelope { cmd: make(reply), span: tracing::Span::current(), enqueued: Instant::now() };
+        self.tx.send(envelope).await.map_err(|_| MatchError::Unavailable)?;
         rx.await.map_err(|_| MatchError::Unavailable)?
     }
 }
@@ -106,14 +116,15 @@ struct Matcher {
 }
 
 impl Matcher {
-    async fn run(mut self, mut rx: mpsc::Receiver<Command>) {
+    async fn run(mut self, mut rx: mpsc::Receiver<Envelope>) {
         let mut batch = Vec::with_capacity(BATCH);
         while rx.recv_many(&mut batch, BATCH).await > 0 {
             metrics::histogram!("orderflow_matcher_batch_size").record(batch.len() as f64);
             metrics::gauge!("orderflow_matcher_queue_depth").set(rx.len() as f64);
-            for cmd in batch.drain(..) {
+            for Envelope { cmd, span, enqueued } in batch.drain(..) {
                 let started = Instant::now();
-                self.handle(cmd);
+                metrics::histogram!("orderflow_matcher_queue_wait_seconds").record(started - enqueued);
+                tracing::info_span!(parent: &span, "match").in_scope(|| self.handle(cmd));
                 metrics::histogram!("orderflow_match_duration_seconds").record(started.elapsed());
             }
             self.flush().await;

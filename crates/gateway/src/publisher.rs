@@ -16,6 +16,7 @@ use rskafka::record::Record;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 
 pub type EventSink = mpsc::Sender<Arc<MarketEvent>>;
 
@@ -65,7 +66,8 @@ async fn run(
         };
 
         let records = batch.iter().map(|event| to_record(event)).collect();
-        match client.produce(records, Compression::NoCompression).await {
+        let span = tracing::info_span!("kafka.produce", events = batch.len());
+        match client.produce(records, Compression::NoCompression).instrument(span).await {
             Ok(_) => {
                 metrics::counter!("orderflow_events_published_total").increment(batch.len() as u64);
                 batch.clear();
