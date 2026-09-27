@@ -1,0 +1,37 @@
+[package]
+name = "orderflow-market-data"
+description = "Consumes matching events from Kafka and fans them out over WebSocket"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "market_data"
+doctest = false
+bench = false
+
+[[bin]]
+name = "market-data"
+path = "src/main.rs"
+bench = false
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+futures-util.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+orderflow-events.workspace = true
+orderflow-telemetry.workspace = true
+rskafka.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio-tungstenite.workspace = true

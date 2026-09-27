@@ -1,8 +1,7 @@
 use std::net::SocketAddr;
-use std::str::FromStr;
 
-use anyhow::Context;
 use events::kafka::KafkaConfig;
+use telemetry::env_or;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -20,7 +19,7 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
-        let symbols: Vec<String> = var_or("GATEWAY_SYMBOLS", "BTC-USD,ETH-USD".to_string())?
+        let symbols: Vec<String> = env_or("GATEWAY_SYMBOLS", "BTC-USD,ETH-USD".to_string())?
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
@@ -28,26 +27,14 @@ impl Config {
         anyhow::ensure!(!symbols.is_empty(), "GATEWAY_SYMBOLS must list at least one symbol");
 
         Ok(Self {
-            grpc_addr: var_or("GATEWAY_GRPC_ADDR", "0.0.0.0:50051".parse()?)?,
-            http_addr: var_or("GATEWAY_HTTP_ADDR", "0.0.0.0:8080".parse()?)?,
+            grpc_addr: env_or("GATEWAY_GRPC_ADDR", "0.0.0.0:50051".parse()?)?,
+            http_addr: env_or("GATEWAY_HTTP_ADDR", "0.0.0.0:8080".parse()?)?,
             symbols,
-            queue_capacity: var_or("GATEWAY_QUEUE_CAPACITY", 65_536)?,
-            default_depth: var_or("GATEWAY_DEFAULT_DEPTH", 10)?,
+            queue_capacity: env_or("GATEWAY_QUEUE_CAPACITY", 65_536)?,
+            default_depth: env_or("GATEWAY_DEFAULT_DEPTH", 10)?,
             kafka: KafkaConfig::from_env(),
-            publisher_capacity: var_or("GATEWAY_PUBLISHER_CAPACITY", 65_536)?,
-            publisher_batch: var_or("GATEWAY_PUBLISHER_BATCH", 1_024)?,
+            publisher_capacity: env_or("GATEWAY_PUBLISHER_CAPACITY", 65_536)?,
+            publisher_batch: env_or("GATEWAY_PUBLISHER_BATCH", 1_024)?,
         })
-    }
-}
-
-/// Reads and parses an environment variable, falling back to `default` when unset.
-pub fn var_or<T>(name: &str, default: T) -> anyhow::Result<T>
-where
-    T: FromStr,
-    T::Err: std::error::Error + Send + Sync + 'static,
-{
-    match std::env::var(name) {
-        Ok(raw) => raw.parse().with_context(|| format!("invalid value for {name}: {raw:?}")),
-        Err(_) => Ok(default),
     }
 }

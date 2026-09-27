@@ -61,7 +61,9 @@ jobs:
       - name: Start stack and wait for health checks
         run: docker compose up -d --wait --wait-timeout 180
       - name: Smoke test
-        run: curl -fsS localhost:18080/readyz
+        run: |
+          curl -fsS localhost:18080/readyz
+          curl -fsS localhost:18081/readyz
       - name: Logs
         if: always()
         run: docker compose logs --no-color
