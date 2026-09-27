@@ -2,13 +2,15 @@
 //! endpoint and signal handling.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::get;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-use tokio::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
@@ -99,4 +101,21 @@ pub async fn stop_signal(token: CancellationToken) {
     }
     tracing::info!("termination signal received, draining");
     token.cancel();
+}
+
+/// Tiny HTTP GET used as the container health check: distroless images ship no curl.
+pub async fn probe(addr: &str, path: &str) -> anyhow::Result<()> {
+    let limit = Duration::from_secs(2);
+    let mut stream = tokio::time::timeout(limit, TcpStream::connect(addr)).await??;
+    let request = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).await?;
+    let mut response = Vec::new();
+    tokio::time::timeout(limit, stream.read_to_end(&mut response)).await??;
+    let status = response.split(|&b| b == b'\r').next().unwrap_or_default();
+    anyhow::ensure!(
+        status.starts_with(b"HTTP/1.1 200"),
+        "{path} returned {}",
+        String::from_utf8_lossy(status)
+    );
+    Ok(())
 }
