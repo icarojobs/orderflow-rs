@@ -1,0 +1,36 @@
+name: orderflow
+
+services:
+  gateway:
+    build:
+      context: .
+      target: gateway
+    image: orderflow/gateway:local
+    environment:
+      RUST_LOG: info
+      GATEWAY_SYMBOLS: BTC-USD,ETH-USD
+      GATEWAY_GRPC_ADDR: 0.0.0.0:50051
+      GATEWAY_HTTP_ADDR: 0.0.0.0:8080
+    ports:
+      - "${GATEWAY_GRPC_PORT:-50051}:50051"
+      - "${GATEWAY_HTTP_PORT:-18080}:8080"
+    stop_grace_period: 10s
+    restart: unless-stopped
+
+  # Toolchain container for running cargo inside Docker:
+  #   docker compose run --rm dev cargo test --workspace
+  dev:
+    profiles: [dev]
+    build:
+      context: .
+      target: toolchain
+    image: orderflow/toolchain:local
+    working_dir: /src
+    volumes:
+      - .:/src
+      - cargo-registry:/usr/local/cargo/registry
+      - dev-target:/src/target
+
+volumes:
+  cargo-registry:
+  dev-target:
