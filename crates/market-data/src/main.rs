@@ -11,7 +11,7 @@ async fn main() -> anyhow::Result<()> {
         return telemetry::probe(&addr, "/healthz").await;
     }
 
-    telemetry::init_tracing();
+    let _tracing = telemetry::init_tracing("market-data")?;
     let metrics = telemetry::install_prometheus()?;
 
     let stop = CancellationToken::new();
