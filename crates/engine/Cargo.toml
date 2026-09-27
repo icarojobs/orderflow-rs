@@ -10,6 +10,7 @@ authors.workspace = true
 
 [lib]
 name = "engine"
+bench = false
 
 [dependencies]
 slab.workspace = true
@@ -17,3 +18,8 @@ thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "book"
+harness = false
