@@ -11,6 +11,7 @@ repository = "https://github.com/icarojobs/orderflow-rs"
 authors = ["Icaro William <icarojobsoficial@gmail.com>"]
 
 [workspace.dependencies]
+proptest = "1"
 slab = "0.4"
 thiserror = "2"
 
