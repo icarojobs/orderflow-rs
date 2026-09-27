@@ -1,0 +1,23 @@
+[package]
+name = "orderflow-loadgen"
+description = "Fires orders at the gateway over gRPC and reports throughput and latency percentiles"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "loadgen"
+path = "src/main.rs"
+bench = false
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+hdrhistogram.workspace = true
+orderflow-proto.workspace = true
+tokio.workspace = true
+tonic.workspace = true
