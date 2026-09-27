@@ -21,10 +21,14 @@ bench = false
 
 [dependencies]
 anyhow.workspace = true
+axum.workspace = true
 futures-util.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
 orderflow-engine.workspace = true
 orderflow-events.workspace = true
 orderflow-proto.workspace = true
+orderflow-telemetry.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

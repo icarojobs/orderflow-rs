@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use engine::{
     Cancelled, Depth, EngineError, Execution, OrderBook, OrderRequest, OrderStatus, OrderType, Side,
@@ -55,6 +55,11 @@ impl MatcherHandle {
         self.call(|reply| Command::Depth { symbol, levels, reply }).await
     }
 
+    /// False once the matching task has stopped.
+    pub fn is_alive(&self) -> bool {
+        !self.tx.is_closed()
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<MarketEvent>> {
         self.events.subscribe()
     }
@@ -93,8 +98,12 @@ impl Matcher {
     async fn run(mut self, mut rx: mpsc::Receiver<Command>) {
         let mut batch = Vec::with_capacity(BATCH);
         while rx.recv_many(&mut batch, BATCH).await > 0 {
+            metrics::histogram!("orderflow_matcher_batch_size").record(batch.len() as f64);
+            metrics::gauge!("orderflow_matcher_queue_depth").set(rx.len() as f64);
             for cmd in batch.drain(..) {
+                let started = Instant::now();
                 self.handle(cmd);
+                metrics::histogram!("orderflow_match_duration_seconds").record(started.elapsed());
             }
         }
         tracing::info!(sequence = self.sequence, "matching loop drained and stopped");
@@ -103,7 +112,17 @@ impl Matcher {
     fn handle(&mut self, cmd: Command) {
         match cmd {
             Command::Place { symbol, req, reply } => {
-                let _ = reply.send(self.place(symbol, req));
+                let result = self.place(symbol, req);
+                let outcome = match &result {
+                    Ok(exec) => match exec.status {
+                        OrderStatus::Resting => "resting",
+                        OrderStatus::Filled => "filled",
+                        OrderStatus::Expired => "expired",
+                    },
+                    Err(_) => "rejected",
+                };
+                metrics::counter!("orderflow_orders_total", "outcome" => outcome).increment(1);
+                let _ = reply.send(result);
             }
             Command::Cancel { symbol, order_id, reply } => {
                 let _ = reply.send(self.cancel(symbol, order_id));
@@ -119,6 +138,7 @@ impl Matcher {
         let exec = self.book(&symbol)?.submit(req)?;
         let now = now_ns();
 
+        metrics::counter!("orderflow_trades_total").increment(exec.fills.len() as u64);
         for fill in &exec.fills {
             let sequence = self.next_sequence();
             self.publish(MarketEvent::Trade(events::Trade {
